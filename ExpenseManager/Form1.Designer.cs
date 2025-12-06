@@ -15,13 +15,13 @@ namespace ExpenseManager
         private Button btnDelete;
         private Button btnStats;
         private Button btnCategory;
+        private Button btnExportPdf;
 
         private DataGridView dgvList;
         private Label lblIncome;
         private Label lblExpense;
         private Label lblNet;
         private Chart chartOverview;
-
         protected override void Dispose(bool disposing)
         {
             if (disposing && (components != null))
@@ -39,6 +39,7 @@ namespace ExpenseManager
             btnDelete = new Button();
             btnStats = new Button();
             btnCategory = new Button();
+            btnExportPdf = new Button();
 
             dgvList = new DataGridView();
             lblIncome = new Label();
@@ -49,6 +50,13 @@ namespace ExpenseManager
             ((System.ComponentModel.ISupportInitialize)dgvList).BeginInit();
             ((System.ComponentModel.ISupportInitialize)chartOverview).BeginInit();
             SuspendLayout();
+            // ===========================
+            // 📄 匯出報表按鈕
+            // ===========================
+            btnExportPdf.Text = "匯出報表";
+            btnExportPdf.Location = new Point(580, 20);
+            btnExportPdf.Size = new Size(100, 30);
+            btnExportPdf.Click += btnExportPdf_Click;
 
             // ===========================
             // 🔘 功能按鈕區
@@ -133,7 +141,7 @@ namespace ExpenseManager
             Controls.AddRange(new Control[]
             {
                 btnAdd, btnEdit, btnLoad, btnDelete, btnStats, btnCategory,
-                chartOverview, lblIncome, lblExpense, lblNet, dgvList
+                chartOverview, lblIncome, lblExpense, lblNet, dgvList, btnExportPdf
             });
 
             ((System.ComponentModel.ISupportInitialize)dgvList).EndInit();

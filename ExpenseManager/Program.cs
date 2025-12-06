@@ -1,15 +1,21 @@
+﻿using System;
+using System.Text;
+using System.Windows.Forms;
+using PdfSharp.Fonts;
+
 namespace ExpenseManager
 {
     internal static class Program
     {
-        /// <summary>
-        ///  The main entry point for the application.
-        /// </summary>
         [STAThread]
         static void Main()
         {
-            // To customize application configuration such as set high DPI settings or default font,
-            // see https://aka.ms/applicationconfiguration.
+            // 🟢 修正 PDFsharp 編碼錯誤（No data is available for encoding 1252）
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+            // 使用嵌入字型
+            GlobalFontSettings.FontResolver = new EmbeddedFontResolver();
+
             ApplicationConfiguration.Initialize();
             Application.Run(new Form1());
         }

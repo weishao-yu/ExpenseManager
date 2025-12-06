@@ -7,6 +7,7 @@ using System.Windows.Forms.DataVisualization.Charting;
 
 namespace ExpenseManager
 {
+
     public partial class Form1 : Form
     {
         private readonly List<Record> records = new();
@@ -50,6 +51,19 @@ namespace ExpenseManager
             FormCategoryManager form = new FormCategoryManager();
             form.ShowDialog(this); // 開新視窗管理分類
         }
+        private void btnExportPdf_Click(object sender, EventArgs e)
+        {
+            using SaveFileDialog sfd = new SaveFileDialog();
+            sfd.Filter = "PDF 檔案 (*.pdf)|*.pdf";
+            sfd.FileName = "報表.pdf";
+
+            if (sfd.ShowDialog() == DialogResult.OK)
+            {
+                PdfReportGenerator.Export(sfd.FileName, records);
+                MessageBox.Show("匯出完成！");
+            }
+        }
+
 
         // === 更新收支總覽圖表 ===
         private void UpdateOverviewChart()
