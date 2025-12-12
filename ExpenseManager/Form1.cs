@@ -7,10 +7,14 @@ using System.Windows.Forms.DataVisualization.Charting;
 
 namespace ExpenseManager
 {
-
     public partial class Form1 : Form
     {
-        private readonly List<Record> records = new();
+        // ✅ 不要 readonly，因為你會在篩選時替換清單
+        private List<Record> records = new();
+
+        // ✅ 原始資料（用來 Reset / 重新篩選）
+        private List<Record> allRecords = new();
+
         public Form1()
         {
             InitializeComponent();
@@ -22,7 +26,18 @@ namespace ExpenseManager
             dgvList.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
 
             InitOverviewChart();
-            UpdateGrid();         // 空清單也能把圖表初始化好
+
+            // ✅ 初始化顯示
+            UpdateGrid();
+
+            // ✅ 初始化 allRecords（避免第一次搜尋 allRecords 為空）
+            SyncAllRecords();
+        }
+
+        // ✅ 同步 allRecords（把目前 records 當成原始資料）
+        private void SyncAllRecords()
+        {
+            allRecords = records.ToList();
         }
 
         // === 初始化收支圓餅圖 ===
@@ -46,24 +61,134 @@ namespace ExpenseManager
 
             chartOverview.BackColor = Color.WhiteSmoke;
         }
+
         private void btnCategory_Click(object sender, EventArgs e)
         {
             FormCategoryManager form = new FormCategoryManager();
             form.ShowDialog(this); // 開新視窗管理分類
         }
-        private void btnExportPdf_Click(object sender, EventArgs e)
+
+        private void btnSearch_Click(object sender, EventArgs e)
+        {
+            using var dialog = new FormSearchFilter();
+
+            if (dialog.ShowDialog() != DialogResult.OK)
+                return;
+
+            var f = dialog.Result;
+
+            // ✅ 建議：由 Filter 視窗用 IsReset 旗標告訴主頁是否重置
+            // 若你 SearchFilter 目前還沒 IsReset，這段會先用「空條件判斷」做備援
+            bool isReset =
+                (f != null) &&
+                (
+                    (HasIsResetTrue(f)) ||
+                    (IsAllEmptyFilterFallback(f))
+                );
+
+            if (isReset)
+            {
+                records = allRecords.ToList();
+                UpdateGrid();
+                return;
+            }
+
+            var filtered = allRecords
+                .Where(r =>
+                {
+                    // ⭐ 關鍵：把 string Date 轉成 DateTime 再比
+                    if (!DateTime.TryParse(r.Date, out var d))
+                        return false;
+
+                    return d.Date >= f.DateFrom.Date && d.Date <= f.DateTo.Date;
+                })
+                .Where(r => string.IsNullOrEmpty(f.Category) || r.Category == f.Category)
+                .Where(r => string.IsNullOrEmpty(f.Keyword) || (r.Item?.Contains(f.Keyword) ?? false))
+                .Where(r => !f.MinAmount.HasValue || r.Amount >= f.MinAmount.Value)
+                .Where(r => !f.MaxAmount.HasValue || r.Amount <= f.MaxAmount.Value)
+                .Where(r => string.IsNullOrEmpty(f.Type) || r.Type == f.Type)
+                .ToList();
+
+
+            records = filtered;
+            UpdateGrid();
+        }
+
+        // ✅ 反射式備援：如果 SearchFilter 有 IsReset 就用（你還沒貼 SearchFilter，我先讓 Form1 不會編譯卡死）
+        private bool HasIsResetTrue(object f)
+        {
+            var prop = f.GetType().GetProperty("IsReset");
+            if (prop == null) return false;
+            if (prop.PropertyType != typeof(bool)) return false;
+            return (bool)prop.GetValue(f);
+        }
+
+        // ✅ 備援：舊的「空條件判斷」（不建議，但先讓你能跑）
+        private bool IsAllEmptyFilterFallback(dynamic f)
+        {
+            try
+            {
+                return string.IsNullOrEmpty((string)f.Category)
+                    && string.IsNullOrEmpty((string)f.Keyword)
+                    && !(bool)f.MinAmount.HasValue
+                    && !(bool)f.MaxAmount.HasValue
+                    && string.IsNullOrEmpty((string)f.Type)
+                    && ((DateTime)f.DateFrom == DateTime.MinValue || (DateTime)f.DateTo == DateTime.MinValue);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void btnExportReport_Click(object sender, EventArgs e)
+        {
+            if (records.Count == 0)
+            {
+                MessageBox.Show("沒有資料可匯出！");
+                return;
+            }
+
+            using (var dlg = new FormExportOption())
+            {
+                var choice = dlg.ShowDialog();
+
+                if (choice == DialogResult.OK)
+                {
+                    ExportPDF();
+                }
+                else if (choice == DialogResult.Yes)
+                {
+                    ExportExcel();
+                }
+            }
+        }
+
+        private void ExportExcel()
+        {
+            using SaveFileDialog sfd = new SaveFileDialog();
+            sfd.Filter = "Excel 檔案 (*.xlsx)|*.xlsx";
+            sfd.FileName = "記帳報表.xlsx";
+
+            if (sfd.ShowDialog() == DialogResult.OK)
+            {
+                ExcelReportGenerator.Export(sfd.FileName, records);
+                MessageBox.Show("Excel 匯出完成！");
+            }
+        }
+
+        private void ExportPDF()
         {
             using SaveFileDialog sfd = new SaveFileDialog();
             sfd.Filter = "PDF 檔案 (*.pdf)|*.pdf";
-            sfd.FileName = "報表.pdf";
+            sfd.FileName = "記帳報表.pdf";
 
             if (sfd.ShowDialog() == DialogResult.OK)
             {
                 PdfReportGenerator.Export(sfd.FileName, records);
-                MessageBox.Show("匯出完成！");
+                MessageBox.Show("PDF 匯出完成！");
             }
         }
-
 
         // === 更新收支總覽圖表 ===
         private void UpdateOverviewChart()
@@ -99,7 +224,6 @@ namespace ExpenseManager
 
             s["PieLabelStyle"] = "Disabled";
 
-
             chartOverview.Series.Add(s);
 
             // 更新三個標籤
@@ -114,7 +238,8 @@ namespace ExpenseManager
             dgvList.DataSource = null;
 
             var sorted = records
-                .OrderByDescending(r => DateTime.Parse(r.Date))
+                .OrderByDescending(r =>
+                    DateTime.TryParse(r.Date, out var d) ? d : DateTime.MinValue)
                 .ToList();
 
             dgvList.DataSource = sorted;
@@ -129,6 +254,10 @@ namespace ExpenseManager
             if (dlg.ShowDialog(this) == DialogResult.OK && dlg.NewRecord != null)
             {
                 records.Add(dlg.NewRecord);
+
+                // ✅ 同步 allRecords
+                allRecords.Add(dlg.NewRecord);
+
                 UpdateGrid();
                 AutoSave();
             }
@@ -162,14 +291,24 @@ namespace ExpenseManager
                     if (idx >= 0)
                     {
                         records[idx] = dlg.NewRecord;
+
+                        // ✅ 同步 allRecords：用相同匹配方式找一次
+                        var idxAll = allRecords.FindIndex(r =>
+                            r.Date == oldRec.Date &&
+                            r.Item == oldRec.Item &&
+                            Math.Abs(r.Amount - oldRec.Amount) < 1e-9 &&
+                            r.Category == oldRec.Category &&
+                            r.Type == oldRec.Type);
+
+                        if (idxAll >= 0)
+                            allRecords[idxAll] = dlg.NewRecord;
+
                         UpdateGrid();
                         AutoSave();
                     }
                 }
             }
         }
-
-
 
         // === 載入 ===
         private void btnLoad_Click(object sender, EventArgs e)
@@ -193,6 +332,10 @@ namespace ExpenseManager
 
                     records.Clear();
                     records.AddRange(data);
+
+                    // ✅ 同步 allRecords（很關鍵）
+                    SyncAllRecords();
+
                     UpdateGrid();
 
                     Console.WriteLine($"[Load] 已載入檔案：{savePath}");
@@ -209,7 +352,6 @@ namespace ExpenseManager
                 return;
             }
 
-            // 注意：因為 DataSource 綁的是 sorted 副本，所以用資料物件來刪
             var row = dgvList.SelectedRows[0];
             if (row.DataBoundItem is Record rec)
             {
@@ -222,12 +364,24 @@ namespace ExpenseManager
 
                 if (idx >= 0)
                 {
+                    // ✅ 同步 allRecords：找相同的資料刪掉
+                    var idxAll = allRecords.FindIndex(r =>
+                        r.Date == rec.Date &&
+                        r.Item == rec.Item &&
+                        Math.Abs(r.Amount - rec.Amount) < 1e-9 &&
+                        r.Category == rec.Category &&
+                        r.Type == rec.Type);
+
                     records.RemoveAt(idx);
+                    if (idxAll >= 0) allRecords.RemoveAt(idxAll);
+
                     UpdateGrid();
                 }
             }
+
             AutoSave();
         }
+
         private string savePath = "expense.csv"; // 預設儲存檔案
 
         // === 自動儲存 ===
@@ -247,8 +401,6 @@ namespace ExpenseManager
             }
         }
 
-
-
         private void btnStats_Click(object sender, EventArgs e)
         {
             if (records.Count == 0)
@@ -260,7 +412,6 @@ namespace ExpenseManager
             btnStats.Enabled = false;
             btnStats.Text = "📊 載入中...";
 
-            // ✅ 指定完整命名空間
             var timer = new System.Windows.Forms.Timer();
             timer.Interval = 300;
             timer.Tick += (s, ev) =>
@@ -274,7 +425,5 @@ namespace ExpenseManager
             };
             timer.Start();
         }
-
-
     }
 }

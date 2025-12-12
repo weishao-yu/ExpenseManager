@@ -15,7 +15,8 @@ namespace ExpenseManager
         private Button btnDelete;
         private Button btnStats;
         private Button btnCategory;
-        private Button btnExportPdf;
+        private Button btnExportReport;
+        private Button btnSearch;
 
         private DataGridView dgvList;
         private Label lblIncome;
@@ -39,7 +40,8 @@ namespace ExpenseManager
             btnDelete = new Button();
             btnStats = new Button();
             btnCategory = new Button();
-            btnExportPdf = new Button();
+            btnExportReport = new Button();
+            btnSearch = new Button();
 
             dgvList = new DataGridView();
             lblIncome = new Label();
@@ -53,10 +55,10 @@ namespace ExpenseManager
             // ===========================
             // 📄 匯出報表按鈕
             // ===========================
-            btnExportPdf.Text = "匯出報表";
-            btnExportPdf.Location = new Point(580, 20);
-            btnExportPdf.Size = new Size(100, 30);
-            btnExportPdf.Click += btnExportPdf_Click;
+            btnExportReport.Text = "匯出報表";
+            btnExportReport.Location = new Point(580, 20);
+            btnExportReport.Size = new Size(100, 30);
+            btnExportReport.Click += btnExportReport_Click;
 
             // ===========================
             // 🔘 功能按鈕區
@@ -91,6 +93,11 @@ namespace ExpenseManager
             btnCategory.Size = new Size(100, 30);
             btnCategory.Click += btnCategory_Click;
 
+            // === 搜尋按鈕 ===
+            btnSearch.Text = "搜尋";
+            btnSearch.Location = new Point(690, 20);
+            btnSearch.Size = new Size(80, 30);
+            btnSearch.Click += btnSearch_Click;
             // ===========================
             // 📊 圖表 Chart
             // ===========================
@@ -141,7 +148,7 @@ namespace ExpenseManager
             Controls.AddRange(new Control[]
             {
                 btnAdd, btnEdit, btnLoad, btnDelete, btnStats, btnCategory,
-                chartOverview, lblIncome, lblExpense, lblNet, dgvList, btnExportPdf
+                chartOverview, lblIncome, lblExpense, lblNet, dgvList, btnExportReport, btnSearch
             });
 
             ((System.ComponentModel.ISupportInitialize)dgvList).EndInit();
