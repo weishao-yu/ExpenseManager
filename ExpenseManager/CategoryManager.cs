@@ -54,8 +54,15 @@ namespace ExpenseManager
         // === 新增分類 ===
         public static void Add(string type, string category)
         {
+            // 強制去空白
+            category = category.Trim();
+            if (string.IsNullOrEmpty(category)) return;
+
             if (!Categories.ContainsKey(type))
                 Categories[type] = new List<string>();
+
+            // 忽略大小寫比較 (如果你希望 "food" 和 "Food" 視為同一個)
+            // 但中文通常沒差，用 Contains 即可
             if (!Categories[type].Contains(category))
             {
                 Categories[type].Add(category);

@@ -127,9 +127,10 @@ namespace ExpenseManager
 
         private void InitYearSelector()
         {
-            // 取得所有年份
+            // 取得所有年份 (先過濾掉日期格式錯誤的，再轉年份)
             var years = records
-                .Select(r => DateTime.Parse(r.Date).Year)
+                .Where(r => DateTime.TryParse(r.Date, out _)) // ✅ 只留日期合法的
+                .Select(r => DateTime.Parse(r.Date).Year)     // ✅ 這裡就安全了
                 .Distinct()
                 .OrderByDescending(y => y)
                 .ToList();
@@ -137,7 +138,8 @@ namespace ExpenseManager
             if (years.Count == 0)
             {
                 MessageBox.Show("沒有任何可用的統計資料。");
-                return;
+                // 建議這裡不要 return，不然下面的 cmbYear 沒東西，LoadData 可能會錯
+                // 可以加個 currentYear 做預設
             }
 
             cmbYear.Items.Clear();
@@ -195,7 +197,13 @@ namespace ExpenseManager
 
             foreach (var r in yearRecords)
             {
-                int month = DateTime.Parse(r.Date).Month - 1;
+                if (!DateTime.TryParse(r.Date, out DateTime d)) continue; // 跳過錯誤日期
+
+                int month = d.Month - 1;
+
+                // 雙重保險：確保 month 在 0~11 之間 (雖然 Month 屬性通常安全，但多一層保險無害)
+                if (month < 0 || month > 11) continue;
+
                 if (r.Type == "收入") monthlyIncome[month] += r.Amount;
                 else if (r.Type == "支出") monthlyExpense[month] += r.Amount;
             }

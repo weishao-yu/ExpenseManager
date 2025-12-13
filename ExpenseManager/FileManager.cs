@@ -1,60 +1,76 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq; // 記得加這個，才能用 Skip
 
 namespace ExpenseManager
 {
-    /// <summary>
-    /// FileManager：負責記帳資料的讀取與儲存（支援收入/支出）
-    /// </summary>
     public static class FileManager
     {
-        // === 儲存記帳資料至 CSV 檔案 ===
-        public static void Save(List<Record> records, string path)
-        {
-            using (StreamWriter sw = new StreamWriter(path))
-            {
-                foreach (var r in records)
-                {
-                    // ✅ 五欄版本（含 Type）
-                    sw.WriteLine($"{r.Date},{r.Item},{r.Amount},{r.Category},{r.Type}");
-                }
-            }
-        }
-
-        // === 從 CSV 檔案載入記帳資料 ===
+        // 配合 CsvExportService 的格式讀取
         public static List<Record> Load(string path)
         {
-            List<Record> records = new();
+            var list = new List<Record>();
 
-            if (!File.Exists(path))
-                return records;
+            if (!File.Exists(path)) return list;
 
-            foreach (var line in File.ReadAllLines(path))
+            var lines = File.ReadAllLines(path);
+
+            // 1. 檢查檔案是否有內容
+            if (lines.Length == 0) return list;
+
+            // 2. 使用 Skip(1) 跳過第一行標題 (Date,Type,Category...)
+            foreach (var line in lines.Skip(1))
             {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                // 簡單切割 (假設內容沒有額外逗號)
                 var parts = line.Split(',');
 
-                if (parts.Length < 5) continue; // 不是新版格式就跳過
+                // 確保至少有 5 個欄位
+                if (parts.Length < 5) continue;
 
                 try
                 {
-                    records.Add(new Record(
-                        parts[0],
-                        parts[1],
-                        double.Parse(parts[2]),
-                        parts[3],
-                        parts[4]
-                    ));
+                    // 3. 去除可能存在的引號 (因為 CsvExportService 有加 Esc)
+                    string date = Clean(parts[0]);
+                    string type = Clean(parts[1]);
+                    string category = Clean(parts[2]);
+                    string item = Clean(parts[3]);
+                    string amountStr = Clean(parts[4]);
+
+                    // 4. 正確對應欄位順序
+                    // 匯出順序: Date, Type, Category, Item, Amount
+                    var r = new Record
+                    {
+                        Date = date,
+                        Type = type,
+                        Category = category,
+                        Item = item,
+                        Amount = double.Parse(amountStr), // 這裡現在是對應到正確的數字欄位了
+
+                        // 雖然這裡沒設 Id, UserId, BookId，
+                        // 但在 FormBookManager 匯入迴圈裡我們會手動覆蓋，所以沒關係
+                    };
+
+                    list.Add(r);
                 }
                 catch
                 {
-                    continue; // 有問題的行就跳過
+                    // 這裡如果解析失敗會跳過該行
+                    // System.Diagnostics.Debug.WriteLine("解析失敗: " + line);
                 }
             }
 
-            return records;
+            return list;
         }
 
+        // 輔助方法：去除 CSV 的引號
+        private static string Clean(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "";
+            // 去除前後空白，並把雙引號 "" 變回 "，再去掉頭尾的 "
+            return input.Trim().Replace("\"\"", "\"").Trim('"');
+        }
     }
 }
-

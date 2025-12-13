@@ -165,12 +165,31 @@ namespace ExpenseManager
 
         private void btnConfirm_Click(object sender, EventArgs e)
         {
+            // 1. 檢查是否為空
             if (string.IsNullOrWhiteSpace(txtAmount.Text))
             {
                 MessageBox.Show("請輸入金額！", "提示");
                 return;
             }
 
+            // ⭐ 修正邏輯：如果輸入框裡面包含 + 或 -，先幫他算出來！
+            if (input.Contains("+") || input.Contains("-"))
+            {
+                try
+                {
+                    // 嘗試計算結果
+                    double result = EvaluateExpression(input);
+                    txtAmount.Text = result.ToString(); // 更新畫面
+                    input = result.ToString();          // 更新變數
+                }
+                catch
+                {
+                    MessageBox.Show("算式無法計算，請檢查輸入！", "錯誤");
+                    return;
+                }
+            }
+
+            // 2. 現在 txtAmount.Text 肯定是純數字了，可以安心轉換
             if (!double.TryParse(txtAmount.Text, out double amount))
             {
                 MessageBox.Show("金額格式錯誤！", "錯誤");

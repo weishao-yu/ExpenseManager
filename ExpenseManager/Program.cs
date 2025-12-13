@@ -7,6 +7,7 @@ namespace ExpenseManager
 {
     internal static class Program
     {
+
         [STAThread]
         static void Main()
         {
@@ -15,6 +16,8 @@ namespace ExpenseManager
 
             // 使用嵌入字型
             GlobalFontSettings.FontResolver = new EmbeddedFontResolver();
+
+            Db.Init();
 
             ApplicationConfiguration.Initialize();
             Application.Run(new Form1());

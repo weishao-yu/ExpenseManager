@@ -10,6 +10,10 @@ namespace ExpenseManager
     {
         public static void Export(string path, List<Record> records)
         {
+            var sorted = records
+                .OrderByDescending(r =>
+                    DateTime.TryParse(r.Date, out var d) ? d : DateTime.MinValue)
+                .ToList();
             PdfDocument doc = new PdfDocument();
             doc.Info.Title = "記帳報表";
 
@@ -43,7 +47,7 @@ namespace ExpenseManager
             DrawTableHeader(gfx, page, ref y, headerFont);
 
             // ======== 表格內容 ========
-            foreach (var r in records)
+            foreach (var r in sorted)
             {
                 DrawRow(gfx, page, ref y, cellFont,
                     r.Date,

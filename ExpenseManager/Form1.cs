@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.SQLite;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -11,6 +12,7 @@ namespace ExpenseManager
     {
         // ✅ 不要 readonly，因為你會在篩選時替換清單
         private List<Record> records = new();
+        private int currentBookId = 0; // 預設帳本（生活）
 
         // ✅ 原始資料（用來 Reset / 重新篩選）
         private List<Record> allRecords = new();
@@ -18,6 +20,17 @@ namespace ExpenseManager
         public Form1()
         {
             InitializeComponent();
+            // 隱藏 Id 欄位
+            dgvList.AutoGenerateColumns = true;
+            dgvList.DataBindingComplete += (s, e) =>
+            {
+                // 隱藏系統用的 ID
+                if (dgvList.Columns["Id"] != null) dgvList.Columns["Id"].Visible = false;
+
+                // 👇 補上這兩行，介面會更乾淨
+                if (dgvList.Columns["UserId"] != null) dgvList.Columns["UserId"].Visible = false;
+                if (dgvList.Columns["BookId"] != null) dgvList.Columns["BookId"].Visible = false;
+            };
 
             // DataGridView 基本保護
             dgvList.AllowUserToOrderColumns = true;
@@ -32,7 +45,50 @@ namespace ExpenseManager
 
             // ✅ 初始化 allRecords（避免第一次搜尋 allRecords 為空）
             SyncAllRecords();
+            UpdateAuthButton();
+
         }
+        private void UpdateAuthButton()
+        {
+            btnAuth.Text = Session.IsLoggedIn ? "登出" : "登入";
+        }
+        private void btnAuth_Click(object sender, EventArgs e)
+        {
+            if (!Session.IsLoggedIn)
+            {
+                // 尚未登入 → 跳 LoginForm
+                using (var lf = new LoginForm())
+                {
+                    if (lf.ShowDialog() == DialogResult.OK)
+                    {
+                        UpdateAuthButton();
+
+                        // ⭐ 確保有預設帳本
+                        currentBookId = BookService.EnsureDefaultBook();
+
+                       
+                        // ⭐ 載入目前帳本資料
+                        records = RecordService.GetMyRecords(currentBookId);
+                        allRecords = records.ToList();
+                        UpdateGrid();
+
+                    }
+
+                }
+            }
+            else
+            {
+                // 已登入 → 登出
+                Session.Logout();
+                UpdateAuthButton();
+
+                ClearAfterLogout();
+
+            }
+        }
+
+
+
 
         // ✅ 同步 allRecords（把目前 records 當成原始資料）
         private void SyncAllRecords()
@@ -67,6 +123,7 @@ namespace ExpenseManager
             FormCategoryManager form = new FormCategoryManager();
             form.ShowDialog(this); // 開新視窗管理分類
         }
+
 
         private void btnSearch_Click(object sender, EventArgs e)
         {
@@ -172,10 +229,16 @@ namespace ExpenseManager
 
             if (sfd.ShowDialog() == DialogResult.OK)
             {
-                ExcelReportGenerator.Export(sfd.FileName, records);
+                // ⭐ 確保匯出順序與畫面一致
+                var exportData = records
+                    .OrderByDescending(r => DateTime.Parse(r.Date))
+                    .ToList();
+
+                ExcelReportGenerator.Export(sfd.FileName, exportData);
                 MessageBox.Show("Excel 匯出完成！");
             }
         }
+
 
         private void ExportPDF()
         {
@@ -185,10 +248,16 @@ namespace ExpenseManager
 
             if (sfd.ShowDialog() == DialogResult.OK)
             {
-                PdfReportGenerator.Export(sfd.FileName, records);
+                // ⭐ 確保匯出順序與畫面一致
+                var exportData = records
+                    .OrderByDescending(r => DateTime.Parse(r.Date))
+                    .ToList();
+
+                PdfReportGenerator.Export(sfd.FileName, exportData);
                 MessageBox.Show("PDF 匯出完成！");
             }
         }
+
 
         // === 更新收支總覽圖表 ===
         private void UpdateOverviewChart()
@@ -247,103 +316,102 @@ namespace ExpenseManager
             UpdateOverviewChart();
         }
 
-        // === 新增紀錄（改用子視窗） ===
         private void btnAdd_Click(object sender, EventArgs e)
         {
-            using var dlg = new FormAddRecord();    // 你已經做好的 POS 風格輸入窗
+            if (!Session.IsLoggedIn)
+            {
+                MessageBox.Show("請先登入");
+                return;
+            }
+
+            using var dlg = new FormAddRecord();
             if (dlg.ShowDialog(this) == DialogResult.OK && dlg.NewRecord != null)
             {
-                records.Add(dlg.NewRecord);
+                // ⭐ 存進資料庫（而不是 List / CSV）
+                RecordService.AddMyRecord(
+                    dlg.NewRecord,
+                    currentBookId   // 這個就是「用途 / 檔案」
+                );
 
-                // ✅ 同步 allRecords
-                allRecords.Add(dlg.NewRecord);
+                // ⭐ 從 DB 重新載入目前帳本的所有紀錄
+                records = RecordService.GetMyRecords(currentBookId);
+                allRecords = records.ToList();
 
                 UpdateGrid();
-                AutoSave();
             }
         }
+
+
+
 
         private void btnEdit_Click(object sender, EventArgs e)
         {
             if (dgvList.SelectedRows.Count == 0)
             {
-                MessageBox.Show("請先選擇要編輯的紀錄！", "提示");
+                MessageBox.Show("請先選擇要編輯的紀錄！");
                 return;
             }
 
-            var row = dgvList.SelectedRows[0];
-            if (row.DataBoundItem is Record oldRec)
+            var oldRec = dgvList.SelectedRows[0].DataBoundItem as Record;
+            if (oldRec == null) return;
+
+            using var dlg = new FormAddRecord();
+            dlg.LoadExistingRecord(oldRec);
+
+            if (dlg.ShowDialog(this) == DialogResult.OK && dlg.NewRecord != null)
             {
-                using var dlg = new FormAddRecord();
+                // ⭐ 關鍵：保留原本的 Id
+                dlg.NewRecord.Id = oldRec.Id;
 
-                // ✅ 用方法設定舊資料
-                dlg.LoadExistingRecord(oldRec);
+                // ⭐ 寫回資料庫
+                RecordService.UpdateRecord(dlg.NewRecord);
 
-                if (dlg.ShowDialog(this) == DialogResult.OK && dlg.NewRecord != null)
-                {
-                    var idx = records.FindIndex(r =>
-                        r.Date == oldRec.Date &&
-                        r.Item == oldRec.Item &&
-                        Math.Abs(r.Amount - oldRec.Amount) < 1e-9 &&
-                        r.Category == oldRec.Category &&
-                        r.Type == oldRec.Type);
-
-                    if (idx >= 0)
-                    {
-                        records[idx] = dlg.NewRecord;
-
-                        // ✅ 同步 allRecords：用相同匹配方式找一次
-                        var idxAll = allRecords.FindIndex(r =>
-                            r.Date == oldRec.Date &&
-                            r.Item == oldRec.Item &&
-                            Math.Abs(r.Amount - oldRec.Amount) < 1e-9 &&
-                            r.Category == oldRec.Category &&
-                            r.Type == oldRec.Type);
-
-                        if (idxAll >= 0)
-                            allRecords[idxAll] = dlg.NewRecord;
-
-                        UpdateGrid();
-                        AutoSave();
-                    }
-                }
+                // ⭐ 重新從 DB 載入
+                records = RecordService.GetMyRecords(currentBookId);
+                allRecords = records.ToList();
+                UpdateGrid();
             }
         }
 
-        // === 載入 ===
-        private void btnLoad_Click(object sender, EventArgs e)
-        {
-            using (OpenFileDialog ofd = new OpenFileDialog())
-            {
-                ofd.Title = "選擇要載入的記帳檔案";
-                ofd.Filter = "CSV 檔案 (*.csv)|*.csv|所有檔案 (*.*)|*.*";
 
-                if (ofd.ShowDialog() == DialogResult.OK)
-                {
-                    var data = FileManager.Load(ofd.FileName);
-                    if (data.Count == 0)
-                    {
-                        MessageBox.Show("載入失敗或檔案內容為空！", "警告");
-                        return;
-                    }
+        // === 載入 CSV（實際為「匯入到目前帳本」） ===
+        //private void btnLoad_Click(object sender, EventArgs e)
+        //{
+        //    if (!Session.IsLoggedIn)
+        //    {
+        //        MessageBox.Show("請先登入");
+        //        return;
+        //    }
 
-                    // ✅ 更新目前儲存路徑
-                    savePath = ofd.FileName;
+        //    using OpenFileDialog ofd = new OpenFileDialog();
+        //    ofd.Title = "選擇要匯入的 CSV 檔案";
+        //    ofd.Filter = "CSV 檔案 (*.csv)|*.csv";
 
-                    records.Clear();
-                    records.AddRange(data);
+        //    if (ofd.ShowDialog() != DialogResult.OK)
+        //        return;
 
-                    // ✅ 同步 allRecords（很關鍵）
-                    SyncAllRecords();
+        //    var data = FileManager.Load(ofd.FileName);
+        //    if (data.Count == 0)
+        //    {
+        //        MessageBox.Show("CSV 檔案內容為空或格式錯誤！");
+        //        return;
+        //    }
 
-                    UpdateGrid();
+        //    foreach (var r in data)
+        //    {
+        //        // ⭐ 寫進資料庫（而不是 List）
+        //        RecordService.AddMyRecord(r, currentBookId);
+        //    }
 
-                    Console.WriteLine($"[Load] 已載入檔案：{savePath}");
-                }
-            }
-        }
+        //    // ⭐ 從 DB 重新載入
+        //    records = RecordService.GetMyRecords(currentBookId);
+        //    allRecords = records.ToList();
+        //    UpdateGrid();
 
-        // === 刪除（以 DataGridView 選取列為準） ===
+        //    MessageBox.Show("CSV 匯入完成！");
+        //}
+
+
         private void btnDelete_Click(object sender, EventArgs e)
         {
             if (dgvList.SelectedRows.Count == 0)
@@ -352,45 +420,39 @@ namespace ExpenseManager
                 return;
             }
 
-            var row = dgvList.SelectedRows[0];
-            if (row.DataBoundItem is Record rec)
-            {
-                var idx = records.FindIndex(r =>
-                    r.Date == rec.Date &&
-                    r.Item == rec.Item &&
-                    Math.Abs(r.Amount - rec.Amount) < 1e-9 &&
-                    r.Category == rec.Category &&
-                    r.Type == rec.Type);
+            var rec = dgvList.SelectedRows[0].DataBoundItem as Record;
+            if (rec == null) return;
 
-                if (idx >= 0)
-                {
-                    // ✅ 同步 allRecords：找相同的資料刪掉
-                    var idxAll = allRecords.FindIndex(r =>
-                        r.Date == rec.Date &&
-                        r.Item == rec.Item &&
-                        Math.Abs(r.Amount - rec.Amount) < 1e-9 &&
-                        r.Category == rec.Category &&
-                        r.Type == rec.Type);
+            var confirm = MessageBox.Show(
+                "確定要刪除這筆紀錄嗎？",
+                "確認刪除",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning
+            );
 
-                    records.RemoveAt(idx);
-                    if (idxAll >= 0) allRecords.RemoveAt(idxAll);
+            if (confirm != DialogResult.Yes)
+                return;
 
-                    UpdateGrid();
-                }
-            }
+            // ⭐ 刪 DB
+            RecordService.DeleteRecord(rec.Id);
 
-            AutoSave();
+            // ⭐ 重新載入
+            records = RecordService.GetMyRecords(currentBookId);
+            allRecords = records.ToList();
+            UpdateGrid();
         }
 
-        private string savePath = "expense.csv"; // 預設儲存檔案
+
+        //  private string savePath = "expense.csv"; // 預設儲存檔案
 
         // === 自動儲存 ===
+        /*
         private void AutoSave()
         {
             try
             {
                 if (string.IsNullOrEmpty(savePath))
-                    savePath = "expense.csv"; // 若還沒設定，則使用預設檔
+                    savePath = "expense.csv";
 
                 FileManager.Save(records, savePath);
                 Console.WriteLine($"[AutoSave] 已自動儲存至 {savePath}");
@@ -400,6 +462,8 @@ namespace ExpenseManager
                 MessageBox.Show("自動儲存失敗：" + ex.Message, "錯誤");
             }
         }
+        */
+
 
         private void btnStats_Click(object sender, EventArgs e)
         {
@@ -425,5 +489,45 @@ namespace ExpenseManager
             };
             timer.Start();
         }
+        private void ClearAfterLogout()
+        {
+            // 清空記錄
+            records.Clear();
+            allRecords.Clear();
+
+            // 清空 DataGridView
+            dgvList.DataSource = null;
+
+            // 清空圖表
+            chartOverview.Series.Clear();
+
+            // 重置統計文字
+            lblIncome.Text = "總收入：0";
+            lblExpense.Text = "總支出：0";
+            lblNet.Text = "總收益：0";
+
+            // 清空帳本選單
+            currentBookId = 0;
+        }
+
+        private void btnBookManager_Click(object sender, EventArgs e)
+        {
+            if (!Session.IsLoggedIn)
+            {
+                MessageBox.Show("請先登入");
+                return;
+            }
+
+            using var dlg = new FormBookManager(currentBookId);
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                currentBookId = dlg.SelectedBookId;
+                records = RecordService.GetMyRecords(currentBookId);
+                allRecords = records.ToList();
+                UpdateGrid();
+            }
+        }
+
+
     }
 }
